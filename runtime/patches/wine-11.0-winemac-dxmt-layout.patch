@@ -1,0 +1,98 @@
+diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+index 7d6d704..be0ec5e 100644
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -3938,6 +3938,18 @@ void macdrv_release_metal_device(macdrv_metal_device d)
+ }
+ }
+ 
++macdrv_view macdrv_get_window_content_view(macdrv_window w)
++{
++    WineWindow* window = (WineWindow*)w;
++    __block macdrv_view view;
++
++    OnMainThread(^{
++        view = (macdrv_view)[window contentView];
++    });
++
++    return view;
++}
++
+ macdrv_metal_view macdrv_view_create_metal_view(macdrv_view v, macdrv_metal_device d)
+ {
+     id<MTLDevice> device = (id<MTLDevice>)d;
+diff --git a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
+index ac2a785..be76aa0 100644
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -179,6 +179,7 @@ extern BOOL macdrv_SystemParametersInfo(UINT action, UINT int_param, void *ptr_p
+     HWND                hwnd;                   /* hwnd that this private data belongs to */
+     macdrv_window       cocoa_window;
+     macdrv_view         client_view;
++    macdrv_view         dxmt_view;              /* Stockade: must stay the 4th pointer slot (offset 24); DXMT reads it as the client view */
+     struct window_rects rects;                  /* window rects in monitor DPI, relative to parent client area */
+     int                 pixel_format;           /* pixel format for GL */
+     HANDLE              drag_event;             /* event to signal that Cocoa-driven window dragging has ended */
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index 6a6b697..4d0fc28 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -525,6 +525,7 @@ extern void macdrv_order_cocoa_window(macdrv_window w, macdrv_window prev,
+ extern macdrv_metal_device macdrv_create_metal_device(void);
+ extern void macdrv_release_metal_device(macdrv_metal_device d);
+ extern macdrv_metal_view macdrv_view_create_metal_view(macdrv_view v, macdrv_metal_device d);
++extern macdrv_view macdrv_get_window_content_view(macdrv_window w);
+ extern macdrv_metal_layer macdrv_view_get_metal_layer(macdrv_metal_view v);
+ extern void macdrv_view_release_metal_view(macdrv_metal_view v);
+ extern bool macdrv_get_view_backing_size(macdrv_view v, int backing_size[2]);
+diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+index 9420e17..280bc69 100644
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -214,6 +214,14 @@ void release_win_data(struct macdrv_win_data *data)
+     if (data) pthread_mutex_unlock(&win_data_mutex);
+ }
+ 
++/* Stockade: keep the view DXMT uses current. Wine 11 only sets client_view
++ * for windows with a GL/Vulkan client surface, so fall back to the content view. */
++static void update_dxmt_view(struct macdrv_win_data *data)
++{
++    if (data->client_view) data->dxmt_view = data->client_view;
++    else data->dxmt_view = data->cocoa_window ? macdrv_get_window_content_view(data->cocoa_window) : NULL;
++}
++
+ 
+ /***********************************************************************
+  *              macdrv_get_cocoa_window
+@@ -483,6 +491,7 @@ static void create_cocoa_window(struct macdrv_win_data *data)
+           wine_dbgstr_rect(&data->rects.visible), wine_dbgstr_rect(&data->rects.client));
+ 
+     data->cocoa_window = macdrv_create_cocoa_window(&wf, frame, data->hwnd, thread_data->queue);
++    update_dxmt_view(data);
+     if (!data->cocoa_window) goto done;
+ 
+     set_cocoa_window_properties(data);
+@@ -516,6 +525,7 @@ static void destroy_cocoa_window(struct macdrv_win_data *data)
+ 
+     macdrv_destroy_cocoa_window(data->cocoa_window);
+     data->cocoa_window = 0;
++    update_dxmt_view(data);
+     data->on_screen = FALSE;
+ }
+ 
+@@ -1094,6 +1104,7 @@ static void macdrv_client_surface_detach(struct client_surface *client)
+         {
+             if (data->client_view == surface->cocoa_view)
+                 data->client_view = NULL;
++            update_dxmt_view(data);
+             release_win_data(data);
+         }
+ 
+@@ -1133,6 +1144,7 @@ static void macdrv_client_surface_present(struct client_surface *client, HDC hdc
+         if (data->client_view) macdrv_set_view_hidden(data->client_view, TRUE);
+         macdrv_set_view_hidden(surface->cocoa_view, FALSE);
+         data->client_view = surface->cocoa_view;
++        update_dxmt_view(data);
+     }
+     release_win_data(data);
+ }
