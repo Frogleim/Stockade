@@ -1,6 +1,10 @@
-# Stockade
+<p align="center">
+  <img src="assets/icon/stockade-icon-1024.png" alt="Stockade icon: a wooden stockade gate" width="160">
+</p>
 
-**A native macOS launcher for the Windows Steam version of Farthest Frontier on Apple Silicon.**
+<h1 align="center">Stockade</h1>
+
+<p align="center"><strong>A native macOS launcher for the Windows Steam version of Farthest Frontier on Apple Silicon.</strong></p>
 
 Stockade sets up one dedicated Wine prefix, runs Windows Steam inside it, and starts the
 game you own, using Wine 11 and [DXMT](https://github.com/3Shain/dxmt) to translate
